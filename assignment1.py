@@ -2,7 +2,9 @@
 
 """
 import itertools
-import string
+import heapq
+from collections import defaultdict
+from string import ascii_letters
 
 CTS = [ct.decode('hex') for ct in """
 315c4eeaa8b5f8aaf9174145bf43e1784b8fa00dc71d885a804e5ee9fa40b16349c146fb778cdf2d3aff021dfff5b403b510d0d0455468aeb98622b137dae857553ccd8883a7bc37520e06e515d22c954eba5025b8cc57ee59418ce7dc6bc41556bdb36bbca3e8774301fbcaa3b83b220809560987815f65286764703de0f3d524400a19b159610b11ef3e
@@ -36,37 +38,46 @@ def strxor(a, b):     # xor two strings of different lengths
     else:
         return "".join([chr(ord(x) ^ ord(y)) for (x, y) in zip(a, b[:len(a)])])
 
-def main():
-    for CT1, CT2 in itertools.permutations(CTS, 2):
-        xor = strxor(CT1, CT2)
-        for i, c in enumerate(xor):
-            if i >= len(KEY):
-                continue  # we don't care
-            if KEY[i] != '_':
-                continue
-            if c in string.ascii_uppercase:
-                for ct in CTS:
-                    if i < len(ct) and ct != CT2 and strxor(CT1, ct)[i] in string.ascii_uppercase:
-                        # there is a space in CT1 and c lower in CT2
-                        KEY[i] = strxor(CT1[i], ' ')
-                        continue
-                    if i < len(ct) and ct != CT1 and strxor(CT2, ct)[i] in string.ascii_uppercase:
-                        # there is a space in CT2 and c lower in CT1
-                        KEY[i] = strxor(CT2[i], ' ')
-                        continue
-            if c in string.ascii_lowercase:
-                for ct in CTS:
-                    if i < len(ct) and ct != CT2 and strxor(CT1, ct)[i] in string.ascii_lowercase:
-                        # there is a space in CT1 and c lower in CT2
-                        KEY[i] = strxor(CT1[i], ' ')
-                        continue
-                    if i < len(ct) and ct != CT1 and strxor(CT2, ct)[i] in string.ascii_lowercase:
-                        # there is a space in CT2 and c lower in CT1
-                        KEY[i] = strxor(CT2[i], ' ')
-                        continue
-    print KEY
-    print "decrypted text: ", list(strxor("".join(KEY), TCT))
+def maxkey(d, n=1):
+    """Returns keys with n-largest value"""
+    return [key for key in d if d[key] in heapq.nlargest(n, d.values())]
 
+def main():
+
+    # Computes all possible combinations of xor-ed letters
+    # I tried other non-overlaping asci sets, but looks like
+    # we have so small redundancy, that only these give sufficient
+    # results, but even so they are not perfect
+    chrtable= defaultdict(list)
+    for x,y in itertools.product(ascii_letters," "):
+        chrtable[ord(strxor(x,y))].append((x,y))
+
+    # Now compute statistics for each key byte
+    statkey= defaultdict(lambda: defaultdict(int))
+    for i in range(len(TCT)):
+        for CT1 in CTS:
+            count= defaultdict(int)
+            for CT2 in CTS:
+                if CT1==CT2:
+                    continue
+
+                xor = strxor(CT1, CT2)
+                for x,y in chrtable.get(ord(xor[i]),[]):
+                    count[x]+= 1
+
+            if not count:
+                continue
+            for maxval in maxkey(count):
+                statkey[i][strxor(maxval,CT1[i])]+= 1
+
+    # Filter most relevant key bytes
+    for i in range(len(TCT)):
+        if i in statkey and statkey[i]:
+            KEY[i]=maxkey(statkey[i])[0]
+
+    print KEY
+    print "decrypted bytes: ", list(strxor("".join(KEY), TCT))
+    print "decrypted text: ", strxor("".join(KEY), TCT)
 
 if __name__ == '__main__':
     main()
